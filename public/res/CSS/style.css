@@ -47,10 +47,6 @@ header {
     gap: 5px;
 }
 
-/* .main-header label {
-    grid-column: span 2;
-} */
-
 .main-header button {
     width: 70px;
 	background-color: var(--btn);
@@ -69,7 +65,7 @@ header {
 	top: 1px;
 }
 
-.main-header input {
+.main-header input, .main-header select {
     padding: 5px;
     border-radius: 5px;
     border: 1px solid black;

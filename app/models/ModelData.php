@@ -1,94 +1,89 @@
 <?php
 
 class ModelData {
-    private $APIURL = API_URL;
     private $db;
-    private $trackingNumber;
-    private $cookieName = "Track";
-    private $cookieNameData = "TrackData";
+    private $api;
 
     public function __construct() {
         $this->db = new Database();
+        $this->api = new Api();
     }
 
-    public function view() {
-        if(isset($_COOKIE[$this->cookieNameData])) {
-            $datenow = date("Y/m/d");
-            $Cookie = json_decode($_COOKIE[$this->cookieNameData],true);
-            if($Cookie['tgl'] == $datenow) {
-                return $Cookie['data'];
-            } else {
-                $this->getAll();
-                return $Cookie['data'];;
+    public function addTracker($data) {
+        $trackingNumber = $data['tracking_number'];
+        $carrier_code = $data['carrier'];
+        $title = $data['name'];
+
+        $body = array(
+            "tracking_number" => $trackingNumber,
+	        "carrier_code" => $carrier_code,
+            "title" => $title
+        );
+        $url = API_URL.'post';
+        $result = json_decode($this->api->callAPI('POST', $url, json_encode($body)), true);
+
+        if ($result['meta']['type'] == "Success"){
+            $this->db->query('SELECT if(max(id)is null,1,max(id)+1) as maks_id  FROM trackdata');
+                $data=$this->db->resultSet();
+                foreach ($data as $rec){
+                    $id=$rec["maks_id"];
             }
-        }
-    }
+    
+            $this->db->query('INSERT INTO trackdata (id,trackingNumber,carrierCode,title) 
+                values (:id,:tn,:cc,:title)');
+            $this->db->bind('id',$id);
+            $this->db->bind('tn',$trackingNumber);
+            $this->db->bind('cc',$carrier_code);
+            $this->db->bind('title',$title);
+            $this->db->execute(); 
 
-    public function getAll() {
-        $listdata = [];
-        if (isset($_COOKIE[$this->cookieName])) {
-            foreach (json_decode($_COOKIE[$this->cookieName]) as $data) {
-                $url = $this->APIURL."trackingNumber=".$data;
-                $result = json_decode($this->db->callAPI('GET', $url, false), true);
-                foreach ($result as $data) {
-                    $listdata['id'] = $data[0]['id'];
-                    $listdata['service'] = $data[0]['service'];
-                    $listdata['status'] = $data[0]['status']['statusCode'];
-                    $listdata['timestamp'] = $data[0]['status']['timestamp'];
-                    $listdata['address'] = $data[0]['status']['location']['address']['addressLocality'];
-                    $listdata['description'] = $data[0]['status']['description'];
-                    $this->db->addCookieData($listdata);
-                }
-            }
-        }
-    }
-
-    public function getOne($data) {
-        $listdata = [];
-        $url = $this->APIURL."trackingNumber=".$data;
-        $result = json_decode($this->db->callAPI('GET', $url, false), true);
-        try {
-            foreach ($result as $data) {
-                $listdata['id'] = $data[0]['id'];
-                $listdata['service'] = $data[0]['service'];
-                $listdata['status'] = $data[0]['status']['statusCode'];
-                $listdata['timestamp'] = $data[0]['status']['timestamp'];
-                $listdata['address'] = $data[0]['status']['location']['address']['addressLocality'];
-                $listdata['description'] = $data[0]['status']['description'];
-                $this->db->addCookieData($listdata);
-            }
-            return true;
-        } catch (Error) {
-            return false;
-        }
-    }
-
-    public function addData($data) {
-        $this->trackingNumber = $data['iresi'];
-        $name = $data['name'];
-        $listdata = [];
-        $url = $this->APIURL."trackingNumber=".$this->trackingNumber;
-        $result = json_decode($this->db->callAPI('GET', $url, false), true);
-        if(isset($result['title'])) {
-            return $result['title'];
+            return $result['meta']['type'];
         } else {
-            foreach ($result['shipments'] as $data) {
-                $listdata['trackingNumber'] = $data['id'];
-                $listdata['name'] = $name;
-                $listdata['service'] = $data['service'];
-                $listdata['status'] = $data['status']['statusCode'];
-                $listdata['timestamp'] = $data['status']['timestamp'];
-                $listdata['address'] = $data['status']['location']['address']['addressLocality'];
-                $listdata['description'] = $data['status']['description'];
-                $this->db->addCookieData($listdata);
-            }
-            $this->db->addCookie($this->trackingNumber);
-            return "berhasil";
+            return $result['meta']['type'];
         }
     }
 
-    public function deleteData($data) {
-        $this->db->deleteCookie($data);
+    public function deleteTracker($id) {
+        $tracker = $this->getById($id);
+        $trackingNumber = $tracker['trackingNumber'];
+        $carrier_code = $tracker['carrierCode'];
+
+        $url = API_URL.$carrier_code.'/'.$trackingNumber;
+        $result = json_decode($this->api->callAPI('DELETE', $url, false), true);
+        if ($result['meta']['type'] == "Success"){
+            $sql="delete from trackdata where id='$id'";
+            $this->db->query($sql);
+            $this->db->execute();
+        }
+
+        return $result['meta']['type'];
+    }
+
+    public function getTracker() {
+        $listdata = [];
+        $this->db->query('SELECT * FROM trackdata');
+        $listtracker =  $this->db->resultSet();
+        for($i=0;$i<count($listtracker);$i++) {
+            $tracker['id'] = $listtracker[$i]['id'];
+            $tracker['trackingNumber'] = $listtracker[$i]['trackingNumber'];
+            $tracker['carrier_code'] = $listtracker[$i]['carrierCode'];
+            $tracker['title'] = $listtracker[$i]['title'];
+            $url = API_URL.$tracker['carrier_code'].'/'.$tracker['trackingNumber'];
+            $result = json_decode($this->api->callAPI('GET', $url, false), true);
+            $tracker['status'] = $result['data'][0]['status'];
+            $tracker['lastupdate'] = $result['data'][0]['lastUpdateTime'];
+            $tracker['lastevent'] = $result['data'][0]['lastEvent'];
+            array_push($listdata, $tracker);
+        }
+
+        return $listdata;
+    }
+
+    public function getById($id) {
+        $sql="SELECT * FROM trackdata WHERE id=:id";
+        $this->db->query($sql);
+        $this->db->bind('id',$id);
+        return $this->db->singleResultSet();
     }
 }
 
